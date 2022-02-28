@@ -196,17 +196,17 @@ def start(message):
     # Обработка сообщений, не содержащих команд
     else:
         text = f'''Воспользуйтесь функциями меню:
-/createentry - для внесения показания прибора учета
-/get_entries - для получения записанных показаний по приборам учета
-/add_counter - для регистрации прибора учета по вашему адресу
-/edit_user - для редактирования вашего профиля
-/exit - для завершения работы'''
+/createentry - внесение показания прибора учета
+/get_entries - получение записанных показаний по приборам учета
+/add_counter - регистрация прибора учета по вашему адресу
+/edit_user - редактирование вашего профиля
+/exit - завершения работы'''
         if message.from_user.id in ADMINS:
             text += '''\n
-/get_records - для получения показаний за месяц в Excel таблице
-/add_company - для добавления компании
+/get_records - получение показаний за месяц в Excel таблице
+/add_company - добавление компании
 /get_companies - просмотр всех зарегистрированных компаний
-/remove_user - для удаления зарегистрированного пользователя по id'''
+/remove_user - удаление зарегистрированного пользователя по id'''
         bot.send_message(message.from_user.id, text)
 
 
@@ -331,7 +331,7 @@ def add_counter_verification(message):
         bot.send_message(message.from_user.id, 'Прибор учета зарегистрирован')
 
     else:
-        bot.send_message(message.from_user.id, 'Хорошо')
+        bot.send_message(message.from_user.id, 'Прибор учета не зарегистрирован')
         message.text = 'exit_code_1'
         start(message)
 
