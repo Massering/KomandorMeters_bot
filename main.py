@@ -115,9 +115,13 @@ def start(message):
     log(message)
 
     if str(message.from_user.id) not in users:
-        bot.send_message(message.from_user.id, "Вы не зарегистрированы. Хотите зарегистрироваться?",
-                         reply_markup=make_bool_keyboard())
-        bot.register_next_step_handler(message, if_registration)
+        if message.text == '/edit_user':
+            message.text = 'Да'
+            if_registration(message)
+        else:
+            bot.send_message(message.from_user.id, "Вы не зарегистрированы. Хотите зарегистрироваться?",
+                             reply_markup=make_bool_keyboard())
+            bot.register_next_step_handler(message, if_registration)
 
     elif message.text == '/createentry':
         user = users[str(message.from_user.id)]
@@ -475,7 +479,7 @@ def register_address(message):
 
 def register_phone(message):
     """Получение номера телефона пользователя"""
-    if log(message, '+1234567890'):
+    if log(message):
         del recording_data[message.from_user.id]
         return
 
@@ -524,17 +528,27 @@ def register_verification(message):
             companies[cur_data[COMPANY]][cur_data[ADDRESS]] = {}
             dump(companies, COMPANIES_NAME)
 
-        users[str(user_id)] = cur_data.copy()
+        if str(user_id) in users:
+            data = zip(*zip(*users[str(user_id)].items()), cur_data.values())
+
+            changes = "\n".join([f"{i[0]}: {i[1] + ' => ' + i[2] if i[1] != i[2] else i[1]}" for i in data])
+
+            bot.send_message(user_id, 'Вы успешно изменили данные')
+            text = f'Пользователь id{user_id} изменил свои данные:\n{changes}'
+
+        else:
+            data = "\n".join([f"{i[0]}: {i[1]}" for i in cur_data.items()])
+            bot.send_message(user_id, 'Вы успешно зарегистрировались')
+            text = f'Пользователь id{user_id}\n{data}\nЗарегистрировался'
+
         # Перезапись файла
+        users[str(user_id)] = cur_data.copy()
         dump(users, USERS_NAME)
         del cur_data
 
-        bot.send_message(user_id, 'Вы успешно зарегистрированы!')
-
         # Отправляем админу информацию о регистрации
-        s = "\n".join([": ".join(i) for i in users[str(user_id)].items()])
         for admin in ADMINS:
-            bot.send_message(admin, f'Пользователь\nid: {user_id}\n{s}\nЗарегистрировался')
+            bot.send_message(admin, text)
     else:
         del cur_data
         bot.send_message(user_id, f'Регистрация отменена')
