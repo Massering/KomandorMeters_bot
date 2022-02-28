@@ -151,6 +151,9 @@ def start(message):
             if_registration(message)
             return
 
+    elif message.text == '/get_entries':
+        get_entries(message)
+
     elif message.text == '/add_counter':
         bot.send_message(message.from_user.id, 'Введите номер регистрируемого прибора учёта')
         bot.register_next_step_handler(message, add_counter)
@@ -162,6 +165,9 @@ def start(message):
     elif message.from_user.id in ADMINS and message.text == '/remove_user':
         bot.send_message(message.from_user.id, 'Введите id пользователя')
         bot.register_next_step_handler(message, remove_user_by_id)
+
+    elif message.text == '/get_companies':
+        get_companies(message)
 
     elif message.from_user.id in ADMINS and message.text == '/get_records':
         date_from = dt.now() - timedelta(days=30)
@@ -210,12 +216,7 @@ def start(message):
         bot.send_message(message.from_user.id, text)
 
 
-@bot.message_handler(commands=['get_companies'])
 def get_companies(message):
-    if message.from_user.id not in ADMINS:
-        start(message)
-        return
-
     if companies:
         text = 'Список всех зарегистрированных компаний:\n'
         text += '\n'.join(companies)
@@ -224,7 +225,6 @@ def get_companies(message):
     bot.send_message(message.from_user.id, text)
 
 
-@bot.message_handler(commands=['get_entries'])
 def get_entries(message):
     user = users[str(message.from_user.id)]
     if companies[user[COMPANY]][user[ADDRESS]]:
