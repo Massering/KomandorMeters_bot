@@ -1,5 +1,4 @@
 import os
-import string
 from datetime import datetime as dt, timedelta
 from time import sleep
 
@@ -21,8 +20,10 @@ HEADERS = ['Company', 'Address', 'Username', 'Phone', 'Counter', 'Data', 'Dateti
 COMPANY, ADDRESS, USERNAME, PHONE, COUNTER, DATA, DATETIME = HEADERS
 
 POSITIVE_ANSWERS = ['yes', 'y', 'да', 'д', '1', 'дп', 'lf']  # Ответы, которые мы принимаем за положительный ответ
-ALLOWED_SIMBOLS = string.digits + string.ascii_letters + \
-                  'йцукенгшщзхъфывапролджэячсмитьбюЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ -.,()/+_'
+RUS = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'
+ENG = 'abcdefghijklmnopqrstuvwxyz'
+DIGITS = '1234567890'
+ALLOWED_SIMBOLS = DIGITS + ENG + ENG.upper() + RUS + RUS.upper() + ' -.,()/+_'
 
 
 def dump(obj, filename):
@@ -347,9 +348,9 @@ def get_counter(message):
     if counter in companies[user[COMPANY]][user[ADDRESS]]:
         value = companies[user[COMPANY]][user[ADDRESS]][counter]
         if value:
-            bot.send_message(message.from_user.id, f'Прошлое показание прибора учёта: {value}')
+            bot.send_message(message.from_user.id, f'Прошлое показание прибора учёта "{counter}": {value}')
         else:
-            bot.send_message(message.from_user.id, 'Нет предыдущих показаний по этому счётчику')
+            bot.send_message(message.from_user.id, f'Нет предыдущих показаний по счётчику "{counter}"')
 
     else:
         bot.send_message(message.from_user.id, 'Прибор учёта с таким номером не зарегистрирован. '
@@ -448,11 +449,6 @@ def register_company(message):
     recording_data[message.from_user.id][COMPANY] = message.text
 
     addresses = companies[message.text]
-    if len(addresses) == 1:
-        message.text = list(addresses)[0]
-        register_address(message)
-        return
-
     bot.send_message(message.from_user.id, 'Выберите адрес своего магазина из списка или, '
                                            'если его нет, введите вручную',
                      reply_markup=make_keyboard(addresses))
@@ -490,7 +486,7 @@ def register_phone(message):
         # и также имя, под которым он был зарегистрирован в прошлый раз
         names = [((message.from_user.last_name or ' ') + ' ' + (message.from_user.first_name or ' ')).strip()]
         if str(message.from_user.id) in users and users[str(message.from_user.id)][USERNAME] != names[0]:
-            names += [users[str(message.from_user.id)][USERNAME]]
+            names.insert(0, users[str(message.from_user.id)][USERNAME])
 
         bot.send_message(message.from_user.id, 'Введите своё имя', reply_markup=make_keyboard(names, False))
         bot.register_next_step_handler(message, register_name)
