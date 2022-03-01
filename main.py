@@ -14,8 +14,8 @@ EXCEL_TABLE = "temp_table.xlsx"
 USERS_NAME = 'users.json'
 COMPANIES_NAME = 'companies.json'
 
-# Константы, по совместительству заголовки в таблице Excel
-# Лучше не менять, иначе файл users.json нужно будет перезаписать
+# Константы, по совместительству заголовки в таблице Excel и БД, ключи в файлах json
+# Лучше не менять, иначе файл users.json и БД нужно будет перезаписать
 HEADERS = ['Company', 'Address', 'Username', 'User_id', 'Phone', 'Counter', 'Data', 'Datetime']
 COMPANY, ADDRESS, USERNAME, USER_ID, PHONE, COUNTER, DATA, DATETIME = HEADERS
 
@@ -23,7 +23,8 @@ POSITIVE_ANSWERS = ['yes', 'y', 'да', 'д', '1', 'дп', 'lf']  # Ответы
 RUS = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'
 ENG = 'abcdefghijklmnopqrstuvwxyz'
 DIGITS = '1234567890'
-ALLOWED_SIMBOLS = DIGITS + ENG + ENG.upper() + RUS + RUS.upper() + ' -.,()/+_'
+PUNCTUATION = ' -.,()/+_\n'
+ALLOWED_SIMBOLS = DIGITS + ENG + ENG.upper() + RUS + RUS.upper() + PUNCTUATION
 
 
 def dump(obj, filename):
@@ -79,12 +80,16 @@ def check_number(number) -> str:
 
 def check_data(data) -> bool:
     """Проверка, соответствуют ли введенные данные ПУ допустимому формату"""
-    return all(i in '1234567890. ' for i in data)
+    try:
+        float(data), int(data.split('.')[0]), int(data.split('.')[-1])
+        return True
+    except ValueError:
+        return False
 
 
 def log(message, symbols=ALLOWED_SIMBOLS, start_call=False) -> bool:
     """Вывод в консоль уведомления о сообщении боту + Проверка сообщения (выход, атака)"""
-    name = message.from_user.username or message.from_user.first_name or 'Unknown'
+    name = ((message.from_user.last_name or ' ') + ' ' + message.from_user.first_name).strip()
     if str(message.from_user.id) not in users:
         name += f' (id {message.from_user.id})'
     print(f'{get_date()} - {name}: "{message.text}"')
@@ -128,19 +133,23 @@ def make_keyboard(values, one_time=True):
 
 def print_commands(message):
     # TODO: /get_users - просмотр всех зарегистрированных пользователей
-    text = f'''Воспользуйтесь функциями меню:
+    text = f'''
+Воспользуйтесь функциями меню:
 /create_entry - внесение показания прибора учета
 /get_entries - получение записанных показаний по приборам учета
 /add_counter - регистрация прибора учета по вашему адресу
+/remove_counter - удаление прибора учета по вашему адресу
 /edit_user - редактирование вашего профиля
-/exit - завершения работы'''
+/exit - завершения работы
+'''
     if message.from_user.id in ADMINS:
-        text += '''\n
-/get_records - получение показаний за месяц в Excel таблице
+        text += '''
+/get_records - получение показаний за последние 30 дней в виде Excel таблицы
 /add_company - добавление компании
 /get_companies - просмотр всех зарегистрированных компаний
 /remove_user - удаление зарегистрированного пользователя по id
-/edit_user_by_id - редактирование данных зарегистрированного пользователя по id'''
+/edit_user_by_id - редактирование данных зарегистрированного пользователя по id
+'''
     bot.send_message(message.from_user.id, text)
 
 
@@ -269,7 +278,7 @@ def get_companies(message):
         text += '\n'.join(companies)
     else:
         text = 'Нет зарегистрированных компаний'
-    bot.send_message(message.from_user.id, text)
+    bot.send_message(message.from_user.id, text if len(text) < 4096 else text[:4093] + '...')
 
 
 def get_entries(message):
@@ -281,7 +290,27 @@ def get_entries(message):
             text += f'"{i[0]}": {i[1] or "Нет показаний"}\n'
     else:
         text = 'Нет зарегистрированных приборов учета'
-    bot.send_message(message.from_user.id, text)
+    bot.send_message(message.from_user.id, text if len(text) < 4096 else text[:4093] + '...')
+
+
+def if_registration(message):
+    """Проверка, точно ли пользователь хочет зарегистрироваться
+    Регистрация происходит в несколько этапов.
+    Компания => Номер телефона => Имя
+    Эти данные впоследствии будут заноситься в таблицу, когда этот пользователь вводит показания"""
+    if log(message):
+        return
+
+    if message.text.lower() in POSITIVE_ANSWERS:
+        message.text = 'self'
+        edit_user_by_id(message)
+
+    else:
+        if str(message.from_user.id) not in users:
+            bot.send_message(message.from_user.id, 'Ок. Не хотите - не надо')
+        else:
+            bot.send_message(message.from_user.id, 'Выход в меню')
+            print_commands(message)
 
 
 def edit_user_by_id(message):
@@ -289,108 +318,149 @@ def edit_user_by_id(message):
     if log(message):
         return
 
-    if message.text.lower() == 'self':
-        message.text = str(message.from_user.id)
+    user_id = message.from_user.id
+    cur_user_id = message.text
 
-    if message.text not in users:
-        bot.send_message(message.from_user.id, 'Пользователь с этим id не зарегистрирован')
+    if cur_user_id.lower() == 'self':
+        cur_user_id = str(user_id)
+
+    if cur_user_id not in users and str(user_id) != cur_user_id:
+        bot.send_message(user_id, 'Пользователь с этим id не зарегистрирован')
         print_commands(message)
         return
 
-    recording_data[message.from_user.id] = {USER_ID: message.text}
+    if cur_user_id in users:
+        data = "\n".join([f"{i[0]}: {i[1]}" for i in users[cur_user_id].items()])
+        if cur_user_id == str(user_id):
+            bot.send_message(user_id, f'Ваши текущие данные:\n{data}')
+        else:
+            bot.send_message(user_id, f'Текущие данные пользователя id{cur_user_id}:\n{data}')
+        companies_list = [users[cur_user_id][COMPANY]]
+        if user_id in ADMINS:
+            companies_list += [i for i in companies if i != users[cur_user_id][COMPANY]]
+    else:
+        companies_list = []
 
-    data = "\n".join([f"{i[0]}: {i[1]}" for i in users[message.text].items()])
-    bot.send_message(message.from_user.id, f'Текущие данные пользователя:\n{data}')
+    recording_data[user_id] = {USER_ID: cur_user_id}
 
-    companies_list = [users[message.text][COMPANY]] + [i for i in companies if i != users[message.text][COMPANY]]
-    bot.send_message(message.from_user.id, f'Выберите компанию, в которой работает пользователь, если такой нет '
-                                           f'в списке, добавьте с помощью команды /add_company',
-                     reply_markup=make_keyboard(companies_list))
-    bot.register_next_step_handler(message, edit_user_by_id_company)
+    if user_id in ADMINS:
+        bot.send_message(user_id, f'Выберите компанию. Если компании нет в списке, '
+                                  f'вы можете добавить её с помощью команды /add_company',
+                         reply_markup=make_keyboard(companies_list))
+    else:
+        bot.send_message(user_id, 'Введите точное название своей компании',
+                         reply_markup=make_keyboard(companies_list))
+
+    bot.register_next_step_handler(message, edit_user_company)
 
 
-def edit_user_by_id_company(message):
+def edit_user_company(message):
     """Администратор редактирует данные зарегистрированного пользователя по его id"""
     if log(message):
         del recording_data[message.from_user.id]
         return
 
+    user_id = message.from_user.id
+    cur_data = recording_data[user_id]
+    cur_user_id = cur_data[USER_ID]
+
     if message.text not in companies:
-        bot.send_message(message.from_user.id, 'Компания с таким названием не зарегистрирована. Попробуйте ещё')
-        bot.register_next_step_handler(message, edit_user_by_id_company)
+        bot.send_message(message.from_user.id, 'Компании с таким названием нет. Попробуйте ещё раз')
+        bot.register_next_step_handler(message, edit_user_company)
         return
 
-    recording_data[message.from_user.id][COMPANY] = message.text
+    cur_data[COMPANY] = message.text
 
-    user = users[recording_data[message.from_user.id][USER_ID]]
-
-    if message.text == user[COMPANY]:
+    if cur_user_id in users and message.text == users[cur_user_id][COMPANY]:
+        user = users[cur_user_id]
         addresses = [user[ADDRESS]] + [i for i in companies[user[COMPANY]] if i != user[ADDRESS]]
     else:
         addresses = companies[message.text]
-    bot.send_message(message.from_user.id, f'Введите адрес, где работает пользователь',
+
+    bot.send_message(user_id, f'Выберите адрес работы из списка или напишите новый',
                      reply_markup=make_keyboard(addresses))
-    bot.register_next_step_handler(message, edit_user_by_id_address)
+    bot.register_next_step_handler(message, edit_user_address)
 
 
-def edit_user_by_id_address(message):
+def edit_user_address(message):
     """Администратор редактирует данные зарегистрированного пользователя по его id"""
     if log(message):
         del recording_data[message.from_user.id]
         return
 
-    cur_data = recording_data[message.from_user.id]
+    user_id = message.from_user.id
+    cur_data = recording_data[user_id]
+    cur_user_id = cur_data[USER_ID]
 
     if message.text not in companies[cur_data[COMPANY]]:
-        bot.send_message(message.from_user.id, 'Этот адрес будет внесен в список адресов компании')
+        bot.send_message(user_id, 'Этот адрес будет внесен в список адресов компании')
 
     cur_data[ADDRESS] = message.text
 
-    bot.send_message(message.from_user.id, f'Введите телефон пользователя',
-                     reply_markup=make_keyboard([users[cur_data[USER_ID]][PHONE]]))
-    bot.register_next_step_handler(message, edit_user_by_id_phone)
+    bot.send_message(user_id, f'Введите номер телефона в федеральном формате (+7**********)',
+                     reply_markup=make_keyboard([users[cur_data[USER_ID]][PHONE]] if cur_user_id in users else []))
+    bot.register_next_step_handler(message, edit_user_phone)
 
 
-def edit_user_by_id_phone(message):
+def edit_user_phone(message):
     """Администратор редактирует данные зарегистрированного пользователя по его id"""
     if log(message):
         del recording_data[message.from_user.id]
         return
 
-    cur_data = recording_data[message.from_user.id]
+    user_id = message.from_user.id
+    cur_data = recording_data[user_id]
+    cur_user_id = cur_data[USER_ID]
 
     try:
         cur_data[PHONE] = check_number(message.text)
     except (AssertionError, TypeError, ValueError):
-        bot.send_message(message.from_user.id, 'Телефон не соответствует формату. Попробуйте ещё раз')
-        bot.register_next_step_handler(message, edit_user_by_id_phone)
+        bot.send_message(user_id, 'Номер телефона не соответствует формату. Попробуйте ещё раз')
+        bot.register_next_step_handler(message, edit_user_phone)
         return
 
-    bot.send_message(message.from_user.id, f'Введите имя пользователя',
-                     reply_markup=make_keyboard([users[cur_data[USER_ID]][USERNAME]]))
-    bot.register_next_step_handler(message, edit_user_by_id_username)
+    if cur_user_id in users:
+        # Предлагаем имя, под которым он был зарегистрирован в прошлый раз (если был)
+        names = [users[cur_user_id][USERNAME]]
+    else:
+        names = []
+
+    if cur_user_id == str(user_id):
+        # Предлагаем имя, под которым он зарегистрирован в Телеграмме
+        fullname = ((message.from_user.last_name or ' ') + ' ' + message.from_user.first_name).strip()
+        if not names or names[0] != fullname:
+            names += [fullname]
+
+    bot.send_message(message.from_user.id, 'Введите имя', reply_markup=make_keyboard(names))
+
+    bot.register_next_step_handler(message, edit_user_username)
 
 
-def edit_user_by_id_username(message):
+def edit_user_username(message):
     """Администратор редактирует данные зарегистрированного пользователя по его id"""
     if log(message):
         del recording_data[message.from_user.id]
         return
 
-    cur_data = recording_data[message.from_user.id]
+    user_id = message.from_user.id
+    cur_data = recording_data[user_id]
+    cur_user_id = cur_data[USER_ID]
 
     cur_data[USERNAME] = message.text
 
-    user = users[cur_data[USER_ID]]
-    changes = get_changes(user, cur_data)
-    bot.send_message(message.from_user.id, f'Вы подтверждаете изменения данных пользователя '
-                                           f'id{cur_data[USER_ID]}?\n{changes}',
-                     reply_markup=make_bool_keyboard())
+    if cur_user_id in users:
+        changes = get_changes(users[cur_user_id], cur_data)
+        bot.send_message(user_id, f'Вы подтверждаете изменения данных?\n{changes}',
+                         reply_markup=make_bool_keyboard())
+    else:
+        changes = get_changes(cur_data)
+        bot.send_message(user_id, f'Вы подтверждаете внесение данных?\n{changes}',
+                         reply_markup=make_bool_keyboard())
 
-    bot.register_next_step_handler(message, edit_user_by_id_verification)
+    bot.register_next_step_handler(message, edit_user_verification)
 
 
-def edit_user_by_id_verification(message):
+def edit_user_verification(message):
     """Подтверждение внесения данных у пользователя"""
     if log(message):
         del recording_data[message.from_user.id]
@@ -398,14 +468,17 @@ def edit_user_by_id_verification(message):
 
     user_id = message.from_user.id
     cur_data = recording_data[user_id]
+    cur_user_id = cur_data[USER_ID]
 
     if message.text.lower() in POSITIVE_ANSWERS:
         if cur_data[ADDRESS] not in companies[cur_data[COMPANY]]:
             companies[cur_data[COMPANY]][cur_data[ADDRESS]] = {}
             dump(companies, COMPANIES_NAME)
 
-        cur_user_id = cur_data[USER_ID]
-        changes = get_changes(users[cur_user_id], cur_data)
+        if cur_user_id in users:
+            changes = get_changes(users[cur_user_id], cur_data)
+        else:
+            changes = ''
 
         # Перезапись файла
         del cur_data[USER_ID]
@@ -413,18 +486,29 @@ def edit_user_by_id_verification(message):
         dump(users, USERS_NAME)
         del recording_data[message.from_user.id]
 
-        bot.send_message(user_id, 'Вы успешно изменили данные пользователя')
-        print_commands(message)
-        text = f'Данные пользователя id{cur_user_id} были изменены администратором id{user_id}:\n{changes}'
+        text1 = 'Если вы получили это, вы нашли баг (фичу) в программе'
+        if changes and str(user_id) != cur_user_id:    # Администратор внес изменения
+            bot.send_message(user_id, f'Вы успешно изменили данные пользователя id{cur_user_id}')
+            text = f'Данные пользователя id{cur_user_id} были изменены администратором id{user_id}:\n{changes}'
+            text1 = f'Ваши были изменены администратором:\n{changes}'
 
-        # Отправляем информацию об изменениях
+        elif changes:    # Сам пользователь внес изменения
+            bot.send_message(user_id, 'Вы успешно изменили свои данные')
+            text = f'Пользователь id{cur_user_id} изменил свои данные:\n{changes}'
+
+        else:    # Пользователь зарегистрировался
+            bot.send_message(user_id, 'Вы успешно зарегистрировались')
+            text = f'Пользователь id{cur_user_id} зарегистрировался:\n{get_changes(users[cur_user_id])}'
+
+        # Отправляем информацию об изменениях админам и пользователю, данные которого были изменены
         for admin_id in set(ADMINS + [int(cur_user_id)]):
             if admin_id != user_id:
-                bot.send_message(admin_id, text)
+                bot.send_message(admin_id, text if admin_id != int(cur_user_id) else text1)
+
     else:
         del recording_data[message.from_user.id]
         bot.send_message(user_id, 'Возврат в меню')
-        print_commands(message)
+    print_commands(message)
 
 
 def remove_user_by_id(message):
@@ -445,10 +529,10 @@ def remove_user_by_id(message):
     data = "\n".join([": ".join(map(str, i)) for i in [('id', message.text)] + list(users[message.text].items())])
     bot.send_message(message.from_user.id, f'Вы действительно хотите удалить пользователя с данными:\n{data}',
                      reply_markup=make_bool_keyboard())
-    bot.register_next_step_handler(message, remove_user_by_id_verification)
+    bot.register_next_step_handler(message, remove_user_verification)
 
 
-def remove_user_by_id_verification(message):
+def remove_user_verification(message):
     """Подтверждение удаления пользователя"""
     if log(message):
         del recording_data[message.from_user.id]
@@ -516,6 +600,12 @@ def add_company_verification(message):
 def add_counter(message):
     """Регистрация прибора учета пользователем"""
     if log(message):
+        return
+
+    user = users[str(message.from_user.id)]
+    if message.text in companies[user[COMPANY]][user[ADDRESS]]:
+        bot.send_message(message.from_user.id, f'Прибор учета с номером "{message.text}" '
+                                               f'уже зарегистрирован по адресу {user[ADDRESS]}')
         return
 
     recording_data[message.from_user.id] = message.text
@@ -625,7 +715,7 @@ def get_data(message):
         bot.register_next_step_handler(message, data_verification)
 
     else:
-        bot.send_message(message.from_user.id, f'Введенные данные должны быть целым числом. Введите ещё раз')
+        bot.send_message(message.from_user.id, f'Введенные данные должны быть числом. Введите ещё раз')
         bot.register_next_step_handler(message, get_data)
 
 
@@ -656,149 +746,6 @@ def data_verification(message):
 
     bot.send_message(message.from_user.id, f'Данные записаны')
     print_commands(message)
-
-
-def if_registration(message):
-    """Проверка, точно ли пользователь хочет зарегистрироваться
-    Регистрация происходит в несколько этапов.
-    Компания => Номер телефона => Имя
-    Эти данные впоследствии будут заноситься в таблицу, когда этот пользователь вводит показания"""
-    if log(message):
-        return
-
-    if message.text.lower() in POSITIVE_ANSWERS:
-        recording_data[message.from_user.id] = {}
-
-        if str(message.from_user.id) in users:
-            markup = make_keyboard([users[str(message.from_user.id)][COMPANY]])
-        else:
-            markup = None
-
-        bot.send_message(message.from_user.id, 'Введите название своей компании',
-                         reply_markup=markup)
-        bot.register_next_step_handler(message, register_company)
-
-    else:
-        bot.send_message(message.from_user.id, 'Ок. Не хотите - не надо')
-
-
-def register_company(message):
-    """Получение компании, в которой работает пользователь"""
-    if log(message):
-        del recording_data[message.from_user.id]
-        return
-
-    if message.text not in companies:
-        bot.send_message(message.from_user.id, 'Такой компании нет. Введите ещё раз')
-        bot.register_next_step_handler(message, register_company)
-        return
-
-    recording_data[message.from_user.id][COMPANY] = message.text
-
-    addresses = companies[message.text]
-    bot.send_message(message.from_user.id, 'Выберите адрес своего магазина из списка или, '
-                                           'если его нет, введите вручную',
-                     reply_markup=make_keyboard(addresses))
-    bot.register_next_step_handler(message, register_address)
-
-
-def register_address(message):
-    """Получение адреса, по которому работает пользователь"""
-    if log(message):
-        del recording_data[message.from_user.id]
-        return
-
-    recording_data[message.from_user.id][ADDRESS] = message.text
-
-    if str(message.from_user.id) in users:
-        markup = make_keyboard([users[str(message.from_user.id)][PHONE]], False)
-    else:
-        markup = None
-
-    bot.send_message(message.from_user.id, 'Введите свой номер телефона в федеральном формате (+7**********)',
-                     reply_markup=markup)
-    bot.register_next_step_handler(message, register_phone)
-
-
-def register_phone(message):
-    """Получение номера телефона пользователя"""
-    if log(message):
-        del recording_data[message.from_user.id]
-        return
-
-    try:
-        recording_data[message.from_user.id][PHONE] = check_number(message.text)
-
-        # Предлагаем ему имя, под которым он зарегистрирован в Телеграмме
-        # и также имя, под которым он был зарегистрирован в прошлый раз
-        names = [((message.from_user.last_name or ' ') + ' ' + (message.from_user.first_name or ' ')).strip()]
-        if str(message.from_user.id) in users and users[str(message.from_user.id)][USERNAME] != names[0]:
-            names.insert(0, users[str(message.from_user.id)][USERNAME])
-
-        bot.send_message(message.from_user.id, 'Введите своё имя', reply_markup=make_keyboard(names, False))
-        bot.register_next_step_handler(message, register_name)
-
-    except (AssertionError, IndexError, ValueError):
-        bot.send_message(message.from_user.id, 'Номер введён неправильно. Введите ещё раз')
-        bot.register_next_step_handler(message, register_phone)
-
-
-def register_name(message):
-    """Получение имени пользователя"""
-    if log(message):
-        del recording_data[message.from_user.id]
-        return
-
-    recording_data[message.from_user.id][USERNAME] = message.text
-
-    if str(message.from_user.id) in users:
-        changes = get_changes(users[str(message.from_user.id)], recording_data[message.from_user.id])
-        bot.send_message(message.from_user.id, f'Изменения:\n{changes}')
-    else:
-        changes = get_changes(recording_data[message.from_user.id])
-        bot.send_message(message.from_user.id, f'Dannye:\n{changes}')
-    bot.send_message(message.from_user.id, f'Внести их?', reply_markup=make_bool_keyboard())
-    bot.register_next_step_handler(message, register_verification)
-
-
-def register_verification(message):
-    """Подтверждение внесения данных у пользователя"""
-    if log(message):
-        del recording_data[message.from_user.id]
-        return
-
-    user_id = message.from_user.id
-    cur_data = recording_data[user_id]
-
-    if message.text.lower() in POSITIVE_ANSWERS:
-        if cur_data[ADDRESS] not in companies[cur_data[COMPANY]]:
-            companies[cur_data[COMPANY]][cur_data[ADDRESS]] = {}
-            dump(companies, COMPANIES_NAME)
-
-        if str(user_id) in users:
-            changes = get_changes(users[str(user_id)], cur_data)
-
-            bot.send_message(user_id, 'Вы успешно изменили данные')
-            text = f'Пользователь id{user_id} изменил свои данные:\n{changes}'
-
-        else:
-            data = "\n".join([f"{i[0]}: {i[1]}" for i in cur_data.items()])
-            bot.send_message(user_id, 'Вы успешно зарегистрировались')
-            text = f'Пользователь id{user_id} зарегистрировался:\n{data}'
-        print_commands(message)
-
-        # Перезапись файла
-        users[str(user_id)] = cur_data.copy()
-        dump(users, USERS_NAME)
-        del recording_data[message.from_user.id]
-
-        # Отправляем админу информацию о регистрации
-        for admin_id in ADMINS:
-            bot.send_message(admin_id, text)
-    else:
-        del recording_data[message.from_user.id]
-        bot.send_message(user_id, 'Возврат в меню')
-        print_commands(message)
 
 
 if __name__ == "__main__":
