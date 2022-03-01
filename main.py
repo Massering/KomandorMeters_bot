@@ -59,9 +59,10 @@ def get_date() -> str:
     return dt.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def get_changes(old, new) -> str:
+def get_changes(old, new=None) -> str:
     """Получение строки с изменениями в словаре. Проверяет только значения, существующие в обоих словарях"""
-    data = [(key, old[key], new[key]) for key in old if key in new]
+
+    data = [(key, old[key], (new or old)[key]) for key in old if not new or key in new]
     return "\n".join([f"{i[0]}: {i[1] + ' => ' + i[2] if i[1] != i[2] else i[1]}" for i in data])
 
 
@@ -128,7 +129,7 @@ def make_keyboard(values, one_time=True):
 def print_commands(message):
     # TODO: /get_users - просмотр всех зарегистрированных пользователей
     text = f'''Воспользуйтесь функциями меню:
-/createentry - внесение показания прибора учета
+/create_entry - внесение показания прибора учета
 /get_entries - получение записанных показаний по приборам учета
 /add_counter - регистрация прибора учета по вашему адресу
 /edit_user - редактирование вашего профиля
@@ -161,7 +162,7 @@ def start(message):
                              reply_markup=make_bool_keyboard())
             bot.register_next_step_handler(message, if_registration)
 
-    elif message.text == '/createentry':
+    elif message.text == '/create_entry':
         create_entry(message)
 
     elif message.text == '/edit_user':
@@ -176,6 +177,13 @@ def start(message):
     elif message.text == '/add_counter':
         bot.send_message(user_id, 'Введите номер регистрируемого прибора учёта')
         bot.register_next_step_handler(message, add_counter)
+
+    elif message.text == '/remove_counter':
+        user = users[str(user_id)]
+        counters = companies[user[COMPANY]][user[ADDRESS]]
+        bot.send_message(user_id, 'Введите номер удаляемого прибора учёта',
+                         reply_markup=make_keyboard(counters))
+        bot.register_next_step_handler(message, remove_counter)
 
     elif user_id in ADMINS and message.text == '/add_company':
         bot.send_message(user_id, 'Введите название регистрируемой компании')
@@ -281,7 +289,7 @@ def edit_user_by_id(message):
     if log(message):
         return
 
-    if message.text == 'self':
+    if message.text.lower() == 'self':
         message.text = str(message.from_user.id)
 
     if message.text not in users:
@@ -295,7 +303,8 @@ def edit_user_by_id(message):
     bot.send_message(message.from_user.id, f'Текущие данные пользователя:\n{data}')
 
     companies_list = [users[message.text][COMPANY]] + [i for i in companies if i != users[message.text][COMPANY]]
-    bot.send_message(message.from_user.id, f'Введите компанию, к которой должен быть привязан пользователь',
+    bot.send_message(message.from_user.id, f'Выберите компанию, в которой работает пользователь, если такой нет '
+                                           f'в списке, добавьте с помощью команды /add_company',
                      reply_markup=make_keyboard(companies_list))
     bot.register_next_step_handler(message, edit_user_by_id_company)
 
@@ -333,7 +342,7 @@ def edit_user_by_id_address(message):
     cur_data = recording_data[message.from_user.id]
 
     if message.text not in companies[cur_data[COMPANY]]:
-        bot.send_message(message.from_user.id, 'Этот адрес будет внесен в список')
+        bot.send_message(message.from_user.id, 'Этот адрес будет внесен в список адресов компании')
 
     cur_data[ADDRESS] = message.text
 
@@ -374,7 +383,8 @@ def edit_user_by_id_username(message):
 
     user = users[cur_data[USER_ID]]
     changes = get_changes(user, cur_data)
-    bot.send_message(message.from_user.id, f'Вы подтверждаете изменения?\n{changes}',
+    bot.send_message(message.from_user.id, f'Вы подтверждаете изменения данных пользователя '
+                                           f'id{cur_data[USER_ID]}?\n{changes}',
                      reply_markup=make_bool_keyboard())
 
     bot.register_next_step_handler(message, edit_user_by_id_verification)
@@ -398,6 +408,7 @@ def edit_user_by_id_verification(message):
         changes = get_changes(users[cur_user_id], cur_data)
 
         # Перезапись файла
+        del cur_data[USER_ID]
         users[cur_user_id] = cur_data.copy()
         dump(users, USERS_NAME)
         del recording_data[message.from_user.id]
@@ -421,7 +432,7 @@ def remove_user_by_id(message):
     if log(message):
         return
 
-    if message.text == 'self':
+    if message.text.lower() == 'self':
         message.text = str(message.from_user.id)
 
     if message.text not in users:
@@ -453,9 +464,9 @@ def remove_user_by_id_verification(message):
 
         for admin_id in ADMINS:
             if admin_id == message.from_user.id:
-                text = f'Пользователь {del_user_id} был удален.'
+                text = f'Пользователь id{del_user_id} был удален.'
             else:
-                text = f'Пользователь {del_user_id} был удален администратором id{message.from_user.id}.'
+                text = f'Пользователь id{del_user_id} был удален администратором id{message.from_user.id}.'
             bot.send_message(admin_id, text)
 
         del recording_data[message.from_user.id]
@@ -471,6 +482,12 @@ def add_company(message):
         return
 
     recording_data[message.from_user.id] = message.text
+
+    if message.text in companies:
+        bot.send_message(message.from_user.id, f'Компания "{message.text}" уже существует')
+        print_commands(message)
+        return
+
     bot.send_message(message.from_user.id, f'Зарегистрировать компанию "{message.text}"?',
                      reply_markup=make_bool_keyboard())
     bot.register_next_step_handler(message, add_company_verification)
@@ -528,6 +545,37 @@ def add_counter_verification(message):
     print_commands(message)
 
 
+def remove_counter(message):
+    """Удаление прибора учета пользователем"""
+    if log(message):
+        return
+
+    recording_data[message.from_user.id] = message.text
+    bot.send_message(message.from_user.id, f'Удалить прибор учета с номером "{message.text}"?',
+                     reply_markup=make_bool_keyboard())
+    bot.register_next_step_handler(message, remove_counter_verification)
+
+
+def remove_counter_verification(message):
+    """Подтверждение удаления прибора учета пользователем"""
+    if log(message):
+        del recording_data[message.from_user.id]
+        return
+
+    if message.text.lower() in POSITIVE_ANSWERS:
+        user = users[str(message.from_user.id)]
+        del companies[user[COMPANY]][user[ADDRESS]][recording_data[message.from_user.id]]
+        dump(companies, COMPANIES_NAME)
+
+        del recording_data[message.from_user.id]
+
+        bot.send_message(message.from_user.id, 'Прибор учета удален')
+
+    else:
+        bot.send_message(message.from_user.id, 'Прибор учета не удален')
+    print_commands(message)
+
+
 def get_counter(message):
     """Получение названия/номера счётчика у пользователя"""
     if log(message):
@@ -539,7 +587,7 @@ def get_counter(message):
     if counter in companies[user[COMPANY]][user[ADDRESS]]:
         value = companies[user[COMPANY]][user[ADDRESS]][counter]
         if value:
-            bot.send_message(message.from_user.id, f'Прошлое показание прибора учёта "{counter}": {value}')
+            bot.send_message(message.from_user.id, f'Прошлое показание прибора учёта "{counter}": {value}.')
         else:
             bot.send_message(message.from_user.id, f'Нет предыдущих показаний по счётчику "{counter}"')
 
@@ -703,8 +751,12 @@ def register_name(message):
 
     recording_data[message.from_user.id][USERNAME] = message.text
 
-    changes = get_changes(users[str(message.from_user.id)], recording_data[message.from_user.id])
-    bot.send_message(message.from_user.id, f'Изменения:\n{changes}')
+    if str(message.from_user.id) in users:
+        changes = get_changes(users[str(message.from_user.id)], recording_data[message.from_user.id])
+        bot.send_message(message.from_user.id, f'Изменения:\n{changes}')
+    else:
+        changes = get_changes(recording_data[message.from_user.id])
+        bot.send_message(message.from_user.id, f'Dannye:\n{changes}')
     bot.send_message(message.from_user.id, f'Внести их?', reply_markup=make_bool_keyboard())
     bot.register_next_step_handler(message, register_verification)
 
