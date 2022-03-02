@@ -260,6 +260,8 @@ def message_to_user(message):
 
     if not message.text.isdigit():
         bot.send_message(message.from_user.id, 'Неправильный id')
+        print_commands(message)
+        return
 
     recording_data[message.from_user.id] = int(message.text)
 
@@ -713,8 +715,15 @@ def remove_counter(message):
     if log(message):
         return
 
-    recording_data[message.from_user.id] = message.text
-    bot.send_message(message.from_user.id, f'Удалить прибор учета с номером "{message.text}"?',
+    user_id = message.from_user.id
+    user = users[str(user_id)]
+    if message.text not in companies[user[COMPANY]][user[ADDRESS]]:
+        bot.send_message(user_id, f'Прибор учета с номером "{message.text}" не зарегистрирован.')
+        print_commands(message)
+        return
+
+    recording_data[user_id] = message.text
+    bot.send_message(user_id, f'Удалить прибор учета с номером "{message.text}"?',
                      reply_markup=make_bool_keyboard())
     bot.register_next_step_handler(message, remove_counter_verification)
 
