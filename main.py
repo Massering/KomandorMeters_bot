@@ -208,7 +208,7 @@ def start(message):
     elif message.text == '/remove_counter':
         user = users[str(user_id)]
         counters = companies[user[COMPANY]][user[ADDRESS]]
-        bot.send_message(user_id, 'Введите номер удаляемого прибора учёта',
+        bot.send_message(user_id, 'Выберите удаляемый прибор учёта',
                          reply_markup=make_keyboard(counters))
         bot.register_next_step_handler(message, remove_counter)
 
@@ -358,7 +358,7 @@ def get_entries(message):
     """Пользователю выводится список всех счётчиков и их текущих показаний"""
     user = users[str(message.from_user.id)]
     if companies[user[COMPANY]][user[ADDRESS]]:
-        text = 'Внесенные показания по вашим приборам учета:\n'
+        text = 'Последние полученные показания по вашим ПУ:\n'
         for i in companies[user[COMPANY]][user[ADDRESS]].items():
             text += f'"{i[0]}": {i[1] or "Нет показаний"}\n'
     else:
@@ -380,7 +380,7 @@ def if_registration(message):
 
     else:
         if str(message.from_user.id) not in users:
-            bot.send_message(message.from_user.id, 'Ок. Не хотите - не надо')
+            bot.send_message(message.from_user.id, 'Регистрация отменена')
         else:
             bot.send_message(message.from_user.id, 'Выход в меню')
             print_commands(message)
@@ -417,11 +417,11 @@ def edit_user_by_id(message):
     recording_data[user_id] = {USER_ID: cur_user_id}
 
     if user_id in ADMINS:
-        bot.send_message(user_id, f'Выберите компанию. Если компании нет в списке, '
+        bot.send_message(user_id, f'Введите название компании. Если компания еще не зарегистрирована, '
                                   f'вы можете добавить её с помощью команды /add_company',
                          reply_markup=make_keyboard(companies_list))
     else:
-        bot.send_message(user_id, 'Введите точное название своей компании',
+        bot.send_message(user_id, 'Введите название своей компании',
                          reply_markup=make_keyboard(companies_list))
 
     bot.register_next_step_handler(message, edit_user_company)
@@ -570,7 +570,7 @@ def edit_user_verification(message):
             text = f'Пользователь id{cur_user_id} изменил свои данные:\n{changes}'
 
         else:    # Пользователь зарегистрировался
-            bot.send_message(user_id, 'Вы успешно зарегистрировались')
+            bot.send_message(user_id, 'Вы успешно зарегистрировались!')
             text = f'Пользователь id{cur_user_id} зарегистрировался:\n{get_changes(users[cur_user_id])}'
 
         # Отправляем информацию об изменениях админам и пользователю, данные которого были изменены
