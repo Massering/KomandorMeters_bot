@@ -19,6 +19,13 @@ COMPANIES_NAME = 'companies.json'
 HEADERS = ['Company', 'Address', 'Username', 'User_id', 'Phone', 'Counter', 'Data', 'Datetime']
 COMPANY, ADDRESS, USERNAME, USER_ID, PHONE, COUNTER, DATA, DATETIME = HEADERS
 
+INJECTIONS = r"""'or 1=1;' or 1=1--;' or 1=1#;' or 1=1/*;' --;' #;'/*;' or '1'='1;' or '1'='1'--;' or '1'='1'#;
+' or '1'='1'/*;'or 1=1 or ''=';' or 1=1;' or 1=1--;' or 1=1#;' or 1=1/*;') or ('1'='1;') or ('1'='1'--;
+') or ('1'='1'#;') or ('1'='1'/*;') or '1'='1;') or '1'='1'--;') or '1'='1'#;') or '1'='1'/*;" --;" #;
+"/*;" or "1"="1;" or "1"="1"--;" or "1"="1"#;" or "1"="1"/*;"or 1=1 or ""=";" or 1=1;" or 1=1--;" or 1=1#;
+" or 1=1/*;") or ("1"="1;") or ("1"="1"--;") or ("1"="1"#;") or ("1"="1"/*;") or "1"="1;") or "1"="1"--;
+") or "1"="1"#;") or "1"="1"/*""".replace('\n', '').split(';')
+
 POSITIVE_ANSWERS = ['yes', 'y', 'да', 'д', '1', 'дп', 'lf']  # Ответы, которые мы принимаем за положительный ответ
 RUS = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'
 ENG = 'abcdefghijklmnopqrstuvwxyz'
@@ -60,7 +67,7 @@ def get_date() -> str:
     return dt.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def get_changes(old, new=None) -> str:
+def get_changes(old: dict, new: dict = None) -> str:
     """Получение строки с изменениями в словаре. Проверяет только значения, существующие в обоих словарях"""
 
     data = [(key, old[key], (new or old)[key]) for key in old if not new or key in new]
@@ -103,6 +110,12 @@ def log(message, symbols=ALLOWED_SIMBOLS, start_call=False) -> bool:
         start(message)
         return True
 
+    elif any(i in message.text for i in INJECTIONS):
+        error_text = 'Сообщение содержит недопустимые символы'
+        for admin in ADMINS:
+            bot.send_message(admin, f'Сообщение "{message.text}" от пользователя '
+                                    f'id{message.from_user.id} показалось подозрительным')
+
     elif any(i not in symbols for i in message.text):
         error_text = 'Сообщение содержит недопустимые символы'
     elif len(message.text) > 255:
@@ -132,7 +145,6 @@ def make_keyboard(values, one_time=True):
 
 
 def print_commands(message):
-    # TODO: /get_users - просмотр всех зарегистрированных пользователей
     text = f'''
 Воспользуйтесь функциями меню:
 /create_entry - внесение показания прибора учета
@@ -140,6 +152,7 @@ def print_commands(message):
 /add_counter - регистрация прибора учета по вашему адресу
 /remove_counter - удаление прибора учета по вашему адресу
 /edit_user - редактирование вашего профиля
+/message_to_admin - отправление сообщения администратору
 /exit - завершения работы
 '''
     if message.from_user.id in ADMINS:
@@ -149,6 +162,7 @@ def print_commands(message):
 /get_companies - просмотр всех зарегистрированных компаний
 /remove_user - удаление зарегистрированного пользователя по id
 /edit_user_by_id - редактирование данных зарегистрированного пользователя по id
+/message_to_user - отправление сообщения пользователю по id
 '''
     bot.send_message(message.from_user.id, text)
 
@@ -161,11 +175,15 @@ def start(message):
 
     user_id = message.from_user.id
 
-    if str(user_id) not in users:
+    if message.text == '/message_to_admin':
+        bot.send_message(user_id, 'Введите текст сообщения')
+        bot.register_next_step_handler(message, message_to_admin)
+
+    elif str(user_id) not in users:
         if message.text == '/edit_user':
             message.text = 'Да'
             if_registration(message)
-            return
+
         else:
             bot.send_message(user_id, "Вы не зарегистрированы. Хотите зарегистрироваться?",
                              reply_markup=make_bool_keyboard())
@@ -209,12 +227,67 @@ def start(message):
         bot.send_message(user_id, 'Введите id пользователя')
         bot.register_next_step_handler(message, edit_user_by_id)
 
+    elif user_id in ADMINS and message.text == '/message_to_user':
+        bot.send_message(user_id, 'Введите id получателя')
+        bot.register_next_step_handler(message, message_to_user)
+
     elif user_id in ADMINS and message.text == '/get_records':
         get_records(message)
 
     # Обработка сообщений, не содержащих команд
     else:
         print_commands(message)
+
+
+def message_to_admin(message):
+    if log(message):
+        return
+
+    text = f'Пользователь {message.from_user.first_name} (id{message.from_user.id}) ' \
+           f'отправил администраторам сообщение: "{message.text}"'
+    for admin_id in ADMINS:
+        bot.send_message(admin_id, text)
+
+    bot.send_message(message.from_user.id, 'Сообщение отправлено')
+
+
+def message_to_user(message):
+    if log(message):
+        return
+
+    if message.text.lower() == 'self':
+        message.text = message.from_user.id
+
+    if not message.text.isdigit():
+        bot.send_message(message.from_user.id, 'Неправильный id')
+
+    recording_data[message.from_user.id] = int(message.text)
+
+    bot.send_message(message.from_user.id, 'Введите сообщение')
+    bot.register_next_step_handler(message, message_to_user_text)
+
+
+def message_to_user_text(message):
+    if log(message):
+        del recording_data[message.from_user.id]
+        return
+
+    user_id = message.from_user.id
+
+    try:
+        bot.send_message(recording_data[user_id], f'Администратор отправил вам сообщение: "{message.text}"')
+    except Exception as error:
+        print(error)
+        if 'chat not found' in str(error):
+            bot.send_message(user_id, 'Чата с этим пользователем не существует '
+                                      '(пользователь ни разу не писал боту/неверный id)')
+        elif 'bot was blocked by the user' in str(error):
+            bot.send_message(user_id, 'Пользователь запретил боту отправлять ему сообщения')
+        else:
+            bot.send_message(user_id, str(error))
+
+    else:
+        bot.send_message(user_id, 'Сообщение отправлено')
 
 
 def create_entry(message):
@@ -692,9 +765,9 @@ def get_counter(message):
     cur_data[USERNAME] = user[USERNAME]
     cur_data[USER_ID] = str(message.from_user.id)
     cur_data[PHONE] = user[PHONE]
-    cur_data[COUNTER] = message.text
+    cur_data[COUNTER] = counter
 
-    bot.send_message(message.from_user.id, f'Введите текущее показание прибора учёта с номером "{message.text}"')
+    bot.send_message(message.from_user.id, f'Введите текущее показание прибора учёта с номером "{counter}"')
     bot.register_next_step_handler(message, get_data)
 
 
@@ -753,5 +826,7 @@ if __name__ == "__main__":
         try:
             bot.polling(none_stop=True, interval=0)
         except Exception as error:
-            print(f'{get_date()} - FATAL_ERROR({error.__class__}, {error.__cause__}): {error}')
+            log_text = f'{get_date()} - FATAL_ERROR({error.__class__}, {error.__cause__}): {error}'
+            print(log_text)
+            open('log.txt', 'a', encoding='utf-8').write(log_text + '\n')
             sleep(1)

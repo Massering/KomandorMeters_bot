@@ -1,0 +1,7 @@
+2022-03-02 11:37:24 - FATAL_ERROR(<class 'TypeError'>, None): argument of type 'NoneType' is not iterable
+2022-03-02 12:07:01 - FATAL_ERROR(<class 'requests.exceptions.ReadTimeout'>, None): HTTPSConnectionPool(host='api.telegram.org', port=443): Read timed out. (read timeout=25)
+2022-03-02 13:28:42 - FATAL_ERROR(<class 'requests.exceptions.ReadTimeout'>, None): HTTPSConnectionPool(host='api.telegram.org', port=443): Read timed out. (read timeout=25)
+2022-03-02 14:13:36 - FATAL_ERROR(<class 'requests.exceptions.ReadTimeout'>, None): HTTPSConnectionPool(host='api.telegram.org', port=443): Read timed out. (read timeout=25)
+2022-03-02 14:56:40 - FATAL_ERROR(<class 'requests.exceptions.ReadTimeout'>, None): HTTPSConnectionPool(host='api.telegram.org', port=443): Read timed out. (read timeout=25)
+2022-03-02 15:03:23 - FATAL_ERROR(<class 'requests.exceptions.ReadTimeout'>, None): HTTPSConnectionPool(host='api.telegram.org', port=443): Read timed out. (read timeout=25)
+2022-03-02 16:45:03 - FATAL_ERROR(<class 'requests.exceptions.ConnectionError'>, None): ('Connection aborted.', ConnectionResetError(10054, 'Удаленный хост принудительно разорвал существующее подключение', None, 10054, None))
